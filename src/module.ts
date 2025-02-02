@@ -54,10 +54,18 @@ async function getVersion() {
 
 	// Build metadata parts
 	const buildParts = []
-	if (gitHead) buildParts.push(gitHead)
+
+	const isGitTagDifferent = gitTag !== packageVersion
+
+	if (isGitTagDifferent && gitHead) {
+		buildParts.push(gitHead)
+	}
+
 	if (gitIsDirty) {
 		buildParts.push('dirty')
+	}
 
+	if (gitIsDirty || isGitTagDifferent) {
 		// Add datetime in YYYYMMDD-HHMMSS format when dirty
 		const now = new Date()
 		const datetime = now.toISOString()
@@ -98,15 +106,17 @@ async function getCurrentTag() {
 	const git = simpleGit()
 
 	try {
-		const { all: tags } = await git.tags()
+		// Get all tags pointing to the current commit
+		const tagsOutput = await git.raw(['tag', '--points-at', 'HEAD'])
+		const tags = tagsOutput.split('\n').filter(Boolean) // Split and remove empty strings
+
+		// Filter and sort tags that are valid semver, removing any preceding 'v'
 		const validTags = tags
+			.map((tag) => tag.replace(/^v/, '')) // Remove preceding 'v'
 			.filter((tag) => semver.valid(tag))
 			.sort((a, b) => semver.rcompare(a, b))
-		if (validTags.length > 0) {
-			return validTags[0]
-		}
 
-		return
+		return validTags.length > 0 ? validTags[0] : undefined
 	}
 	catch (err) {
 		console.error('Error getting current tag:', err)
@@ -132,8 +142,9 @@ async function getGitIsDirty() {
 	const git = simpleGit()
 
 	try {
-		const isDirty = await git.status()
-		return isDirty
+		const status = await git.status()
+		const isClean = status.isClean()
+		return !isClean
 	}
 	catch (err) {
 		console.error('Error getting git is dirty:', err)
